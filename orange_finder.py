@@ -2,7 +2,7 @@ import pyautogui
 import cv2
 import numpy as np
 import time
-import os
+import os 
 
 # Configuration
 OBS_WINDOW_TITLE = "OBS"  
@@ -17,7 +17,14 @@ MAX_ORANGE_SIZE = 5000
 
 # PAYLINE detection
 TEMPLATE_FILE = 'payline_template.png'
-PAYLINE_TEMPLATE = cv2.imread(TEMPLATE_FILE, 0) if os.path.exists(TEMPLATE_FILE) else None
+PAYLINE_TEMPLATE = None
+if os.path.exists(TEMPLATE_FILE):
+    try:
+        PAYLINE_TEMPLATE = cv2.imread(TEMPLATE_FILE, 0)
+        if PAYLINE_TEMPLATE is None:
+            print(f"Warning: Could not read template file {TEMPLATE_FILE}")
+    except Exception as e:
+        print(f"Error loading template: {e}")
 
 def get_obs_window():
     try:
@@ -43,7 +50,9 @@ def analyze_screen(region):
         # Detect orange elements
         hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
         orange_mask = cv2.inRange(hsv, ORANGE_HSV_LOWER, ORANGE_HSV_UPPER)
-        contours, _ = cv2.findContours(orange_mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        
+        # Use better contour detection method
+        contours, _ = cv2.findContours(orange_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
         orange_count = 0
         for cnt in contours:
@@ -57,13 +66,20 @@ def analyze_screen(region):
         # Detect PAYLINE
         payline_count = 0
         if PAYLINE_TEMPLATE is not None:
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            res = cv2.matchTemplate(gray, PAYLINE_TEMPLATE, cv2.TM_CCOEFF_NORMED)
-            loc = np.where(res >= 0.8)
-            payline_count = len(loc[0])
-            if DEBUG_MODE:
-                for pt in zip(*loc[::-1]):
-                    cv2.rectangle(debug_img, pt, (pt[0]+PAYLINE_TEMPLATE.shape[1], pt[1]+PAYLINE_TEMPLATE.shape[0]), (255,0,0), 2)
+            try:
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                res = cv2.matchTemplate(gray, PAYLINE_TEMPLATE, cv2.TM_CCOEFF_NORMED)
+                threshold = 0.8
+                loc = np.where(res >= threshold)
+                payline_count = len(loc[0])
+                if DEBUG_MODE:
+                    for pt in zip(*loc[::-1]):
+                        cv2.rectangle(debug_img, pt, 
+                                    (pt[0]+PAYLINE_TEMPLATE.shape[1], 
+                                     pt[1]+PAYLINE_TEMPLATE.shape[0]), 
+                                    (255,0,0), 2)
+            except Exception as e:
+                print(f"Template matching error: {e}")
         
         if DEBUG_MODE:
             cv2.imshow('Debug View', debug_img)
@@ -76,24 +92,27 @@ def analyze_screen(region):
         return 0, 0
 
 def main():
-    print(" OBS Detector - Press Ctrl+C to stop")
+    print("OBS Detector - Press Ctrl+C to stop")
     
-    if PAYLINE_TEMPLATE is None:
-        print(f" Warning: {TEMPLATE_FILE} not found. Only orange detection will work.")
+    if PAYLINE_TEMPLATE is None and os.path.exists(TEMPLATE_FILE):
+        print(f"Warning: Could not load template file {TEMPLATE_FILE}")
+    elif not os.path.exists(TEMPLATE_FILE):
+        print(f"Warning: {TEMPLATE_FILE} not found. Only orange detection will work.")
     
     obs_region = get_obs_window()
     if not obs_region:
-        print(" OBS window not found!")
+        print("OBS window not found!")
         return
     
     try:
         while True:
             orange, payline = analyze_screen(obs_region)
-            print(f"\r🍊 Orange: {orange} |  PAYLINE: {payline}", end="", flush=True)
+            print(f"\r🍊 Orange: {orange} | PAYLINE: {payline}", end="", flush=True)
             time.sleep(SCAN_INTERVAL)
     except KeyboardInterrupt:
-        print("\n Stopped")
-        if DEBUG_MODE:
+        print("\nStopped")
+    finally:
+        if DEBUG_MODE and cv2.getWindowProperty('Debug View', cv2.WND_PROP_VISIBLE) >= 1:
             cv2.destroyAllWindows()
 
 if __name__ == "__main__":
